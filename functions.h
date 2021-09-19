@@ -11,12 +11,26 @@ void get_home_directory(char *home_directory);
 
 void get_hostname(char *hostname);
 
-char* read_input();
+void parse_input(char* input, char* current_dir, char* home_dir, char* prev_dir);
 
-char** parse_input(char* input, int* command_count);
+void execute_command(char* command,char* current_dir, char* home_dir, char* prev_dir);
 
-void execute_commands(char** commands, int commands_count);
+char** parse_command(char* command, int* arguments_count);
 
-char** parse_commands(char* command, int* arguments_count);
+int foreground_process(char** arguments, int arguments_count);
+
+int background_process(char** arguments, int arguments_count);
+
+void pinfo(char** arguments, int arguments_count);
+
+void delete_child(int pid);
+
+void add_child(int pid, char* name);
+
+void init_child_list();
+
+void initialize_child_process_handler();
+
+void sig_child_handler(int sig);
 
 #endif
