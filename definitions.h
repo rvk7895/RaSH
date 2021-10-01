@@ -14,6 +14,7 @@
 #include <grp.h>
 #include <time.h>
 #include <signal.h>
+#include <fcntl.h>
 
 #define STDIN 0
 #define STDOUT 1

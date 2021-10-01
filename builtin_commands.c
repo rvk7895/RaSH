@@ -99,7 +99,7 @@ void pwd(char* dir, char* home_dir) {
 }
 
 void echo(char** arguments, int argument_count) {
-    for (int i = 1;i < argument_count;i++) {
+    for (int i = 1; arguments[i] != NULL;i++) {
         printf("%s", arguments[i]);
     }
     printf("\n");

@@ -2,6 +2,7 @@
 #include "functions.h"
 #include "definitions.h"
 #include "builtin_commands.h"
+#include "userdefined_commands.h"
 
 struct child child_list[MAX_CHILDREN];
 char* history_list[MAX_HISTORY];
@@ -159,12 +160,110 @@ void parse_input(char* input, char* current_dir, char* home_dir, char* prev_dir)
     }
 
     for (int i = 0;i < command_count;i++) {
-        execute_command(commands[i], current_dir, home_dir, prev_dir);
+        handle_pipes(commands[i], current_dir, home_dir, prev_dir);
     }
 
 }
 
+void handle_pipes(char* command, char* current_dir, char* home_dir, char* prev_dir) {
+    int pipe_count = 0;
+    int status = 0;
+
+    for (int i = 0;i < strlen(command);i++) {
+        if (command[i] == '|') {
+            pipe_count++;
+        }
+    }
+
+    if (pipe_count == 0) {
+        execute_command(command, current_dir, home_dir, prev_dir);
+    }
+
+    else {
+        char* commands[pipe_count + 1];
+        char* depiped_command = strtok(command, "|");
+        int number_of_piped_commands = 0;
+        while (depiped_command != NULL) {
+            commands[number_of_piped_commands] = depiped_command;
+            number_of_piped_commands++;
+            depiped_command = strtok(NULL, "|");
+        }
+
+        for (int i = 0; i < number_of_piped_commands; i++)
+        {
+            if (commands[i][0] == ' ')
+                commands[i]++;
+            if (commands[i][strlen(commands[i]) - 1] == ' ')
+                commands[i][strlen(commands[i]) - 1] = '\0';
+        }
+
+        int pipes[pipe_count][2];
+        for (int i = 0; i < pipe_count; i++)
+        {
+            if (pipe(pipes[i]) == -1)
+            {
+                perror("pipe");
+                return;
+            }
+        }
+
+        int cpid;
+
+        for (int i = 0; i < pipe_count + 1; i++) {
+            cpid = fork();
+
+            if (cpid == -1) {
+                perror("fork");
+                return;
+            }
+
+            if (cpid == 0) {
+                if (i < pipe_count) {
+                    dup2(pipes[i][1], STDOUT);
+                }
+
+                if (i > 0) {
+                    dup2(pipes[i - 1][0], STDIN);
+                }
+
+                for (int j = 0; j < pipe_count; j++) {
+                    close(pipes[j][0]);
+                    close(pipes[j][1]);
+                }
+
+                execute_command(commands[i], current_dir, home_dir, prev_dir);
+                exit(0);
+            }
+        }
+        for (int i = 0; i < 2 * pipe_count; i++) {
+            close(pipes[i][0]);
+            close(pipes[i][1]);
+        }
+
+        for (int i = 0; i < pipe_count + 1; i++)
+        {
+            if (i == pipe_count)
+            {
+                wait(&status);
+                status = WEXITSTATUS(status);
+            }
+            else
+                wait(NULL);
+        }
+    }
+}
+
 void execute_command(char* command, char* current_dir, char* home_dir, char* prev_dir) {
+
+    int redir = 0;
+    // If there is no redirection, execute the command normally
+    int readRedir = 0;
+    int writeRedir = 0;
+
+    // Will store index of file location in the command
+    int infileLoc = -1;
+    int outfileLoc = -1;
+
 
     // parsing the command
     // printf("%s\n", command);
@@ -177,8 +276,74 @@ void execute_command(char* command, char* current_dir, char* home_dir, char* pre
         argument = strtok(NULL, " ");
     }
 
+    for (int i = 0;i < argument_count; i++) {
+        if (arguments[i][0] == '>' || arguments[i][0] == '<') {
+            redir = 1;
+        }
+    }
+
+
     add_history(arguments[0]);
 
+    for (int i = 0;i < argument_count;i++) {
+        if (strcmp(arguments[i], ">") == 0) {
+            writeRedir = 1;
+            outfileLoc = i + 1;
+        }
+
+        else if (strcmp(arguments[i], "<") == 0) {
+            readRedir = 1;
+            infileLoc = i + 1;
+        }
+
+        else if (strcmp(arguments[i], ">>") == 0) {
+            writeRedir = 2;
+            outfileLoc = i + 1;
+        }
+    }
+
+    int stdinBackup;
+    int stdoutBackup;
+    int ipFd;
+    int opFd;
+    if (readRedir)
+    {
+        stdinBackup = dup(STDIN);
+        ipFd = open(arguments[infileLoc], O_RDONLY);
+        if (ipFd < 0)
+        {
+            close(stdinBackup);
+            printf("Unable to redirect input\n");
+            perror("RASH:");
+            return;
+        }
+        if (dup2(ipFd, STDIN) == -1)
+        {
+            printf("Unable to redirect input\n");
+            perror("RASH:");
+            return;
+        }
+    }
+    if (writeRedir)
+    {
+        stdoutBackup = dup(STDOUT);
+        int opMethod = writeRedir == 1 ? O_TRUNC : O_APPEND;
+        opFd = open(arguments[outfileLoc], O_CREAT | O_WRONLY | opMethod, 0644);
+        if (opFd < 0)
+        {
+            close(stdoutBackup);
+            printf("Unable to redirect output\n");
+            perror("RASH:");
+            return;
+        }
+
+        if (dup2(opFd, STDOUT) == -1)
+        {
+            printf("Unable to redirect output\n");
+            perror("RASH:");
+            return;
+        }
+    }
     // implementing cd
     if (strcmp(arguments[0], "cd") == 0) {
         if (argument_count == 1) {
@@ -223,10 +388,18 @@ void execute_command(char* command, char* current_dir, char* home_dir, char* pre
 
     // implementing echo
     else if (strcmp(arguments[0], "echo") == 0) {
+        if (writeRedir != 0)
+            arguments[outfileLoc - 1] = NULL;
+        if (readRedir != 0)
+            arguments[infileLoc - 1] = NULL;
         echo(arguments, argument_count);
     }
 
     else if (strcmp(arguments[0], "ls") == 0) {
+        if (writeRedir != 0)
+            arguments[outfileLoc - 1] = NULL;
+        if (readRedir != 0)
+            arguments[infileLoc - 1] = NULL;
         ls(arguments, argument_count, home_dir);
     }
 
@@ -301,17 +474,60 @@ void execute_command(char* command, char* current_dir, char* home_dir, char* pre
         }
     }
 
-    else {
-    if (arguments[argument_count - 1][0] == '&') {
-        background_process(arguments, argument_count);
+    else if (strcmp(arguments[0], "jobs") == 0) {
+        int s_flag = 0;
+        int r_flag = 0;
+
+        for (int i = 1;i < argument_count;i++) {
+            if (strcmp(arguments[i], "-s") == 0) {
+                s_flag = 1;
+            }
+            else if (strcmp(arguments[i], "-r") == 0) {
+                r_flag = 1;
+            }
+            else if (strcmp(arguments[i], "-rs") == 0 || strcmp(arguments[i], "-sr") == 0) {
+                s_flag = 1;
+                r_flag = 1;
+            }
+        }
+
+        jobs(child_list,children_count,r_flag,s_flag);
     }
+
     else {
-        foreground_process(arguments, argument_count);
-    }
+        if (arguments[argument_count - 1][0] == '&') {
+
+            if (writeRedir != 0)
+                arguments[outfileLoc - 1] = NULL;
+            if (readRedir != 0)
+                arguments[infileLoc - 1] = NULL;
+
+            background_process(arguments, argument_count);
+        }
+        else {
+
+            if (writeRedir != 0)
+                arguments[outfileLoc - 1] = NULL;
+            if (readRedir != 0)
+                arguments[infileLoc - 1] = NULL;
+
+            foreground_process(arguments, argument_count);
+        }
     }
 
 
     free(arguments);
+
+    //resetting STDIN and STDOUT
+    if (readRedir) {
+        close(ipFd);
+        dup2(stdinBackup, STDIN);
+    }
+
+    if (writeRedir) {
+        close(opFd);
+        dup2(stdoutBackup, STDOUT);
+    }
 
     return;
 }

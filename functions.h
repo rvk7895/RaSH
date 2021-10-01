@@ -33,4 +33,6 @@ void initialize_child_process_handler();
 
 void sig_child_handler(int sig);
 
+void handle_pipes(char* command,char* current_dir, char* home_dir, char* prev_dir);
+
 #endif
