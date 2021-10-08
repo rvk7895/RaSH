@@ -36,7 +36,7 @@ void jobs(struct child* child_list, int child_count, int r_flag, int s_flag) {
         proc_stat = fopen(file_path, "r");
         if (proc_stat == NULL) {
             perror("fopen");
-            return ;
+            return;
         }
 
         fgets(stat_read, 1024, proc_stat);
@@ -62,5 +62,119 @@ void jobs(struct child* child_list, int child_count, int r_flag, int s_flag) {
             printf("[%d] %s %s [%d]\n", i + 1, running_stat[0] == 'S' ? "Stopped" : "Running", child_list[i].name, (int)child_list[i].pid);
         }
     }
+    return;
+}
+
+void sig(int index, int sig, struct child* child_list, int child_count) {
+    struct child child_list_copy[child_count];
+
+    for (int i = 0; i < child_count; i++) {
+        child_list_copy[i] = child_list[i];
+    }
+
+    sort_children(child_list_copy, child_count);
+
+    if (index > child_count || index < 1) {
+        printf("No such job\n");
+        return;
+    }
+
+    int pid = child_list[index - 1].pid;
+    kill(pid, sig);
+    return;
+}
+
+void fg(int index, struct child* child_list, int child_count) {
+    struct child child_list_copy[child_count];
+
+    for (int i = 0; i < child_count; i++) {
+        child_list_copy[i] = child_list[i];
+    }
+
+    sort_children(child_list_copy, child_count);
+
+    if (index > child_count || index < 1) {
+        printf("No such job\n");
+        return;
+    }
+
+    int pid = child_list[index - 1].pid;
+    char process_name[MAX_PATH_LENGTH];
+    strcpy(process_name, child_list[index - 1].name);
+
+    delete_child(pid);
+
+    //ignoring signals
+    signal(SIGTTOU, SIG_IGN);
+    signal(SIGTTIN, SIG_IGN);
+
+    //setting the foreground process
+    int flag = tcsetpgrp(STDIN, getpgid(pid));
+
+    if (flag) {
+        printf("Could not give terminal control to the job\n");
+        perror("fg:");
+        signal(SIGTTOU, SIG_DFL);
+        signal(SIGTTIN, SIG_DFL);
+        return;
+    }
+
+    if (kill(pid, SIGCONT))
+    {
+        printf("Unable to resume job %d\n", index);
+        perror("fg:");
+        signal(SIGTTOU, SIG_DFL);
+        signal(SIGTTIN, SIG_DFL);
+        return;
+    }
+
+    int status;
+    if (waitpid(pid, &status, WUNTRACED) > 0) {
+        if (WIFSTOPPED(status)) {
+            add_child(pid, process_name);
+        }
+    }
+
+    if(tcsetpgrp(STDIN, getpgid(0)))
+    {
+        printf("Could not return terminal controll to the shell. Exitting the shell\n");
+        perror("fg:");
+    }
+
+    signal(SIGTTOU, SIG_DFL);
+    signal(SIGTTIN, SIG_DFL);
+}
+
+void bg(int index, struct child* child_list, int child_count) {
+    struct child child_list_copy[child_count];
+
+    for (int i = 0; i < child_count; i++) {
+        child_list_copy[i] = child_list[i];
+    }
+
+    sort_children(child_list_copy, child_count);
+
+    if (index > child_count || index < 1) {
+        printf("No such job\n");
+        return ;
+    }
+
+    int pid = child_list[index - 1].pid;
+    char process_name[MAX_PATH_LENGTH];
+    strcpy(process_name, child_list[index - 1].name);
+
+    delete_child(pid);
+
+    if (kill(pid, SIGCONT))
+    {
+        printf("Unable to resume job %d\n", index);
+        perror("bg:");
+        return ;
+    }
+
+    add_child(pid, process_name);
     return ;
 }
+
+
+

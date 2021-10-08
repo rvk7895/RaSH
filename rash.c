@@ -20,6 +20,9 @@ int main(int argc, char* argv[]) {
     init_child_list();
     initialize_child_process_handler();
 
+    signal(SIGINT, SIG_IGN);
+    signal(SIGTSTP, SIG_IGN);
+
     // infinite loop for shell
     while (1) {
         printf("<%s@%s:%s>", USERNAME, HOSTNAME, CURRENT_DIR);

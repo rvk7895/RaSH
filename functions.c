@@ -491,7 +491,38 @@ void execute_command(char* command, char* current_dir, char* home_dir, char* pre
             }
         }
 
-        jobs(child_list,children_count,r_flag,s_flag);
+        jobs(child_list, children_count, r_flag, s_flag);
+    }
+
+    else if (strcmp(arguments[0], "sig") == 0) {
+        if (argument_count == 1 || argument_count > 3) {
+            printf("sig: format sig <job_index> <signal>\n");
+        }
+        else {
+            int job_index = atoi(arguments[1]);
+            int signal = atoi(arguments[2]);
+            sig(job_index, signal, child_list, children_count);
+        }
+    }
+
+    else if (strcmp(arguments[0], "fg") == 0) {
+        if (argument_count == 1 || argument_count > 2) {
+            printf("fg: format fg <job_index>\n");
+        }
+        else {
+            int job_index = atoi(arguments[1]);
+            fg(job_index, child_list, children_count);
+        }
+    }
+
+    else if (strcmp(arguments[0], "bg") == 0) {
+        if (argument_count == 1 || argument_count > 2) {
+            printf("fg: format fg <job_index>\n");
+        }
+        else {
+            int job_index = atoi(arguments[1]);
+            bg(job_index, child_list, children_count);
+        }
     }
 
     else {
@@ -542,10 +573,14 @@ int foreground_process(char** arguments, int argument_count) {
     if (pid == 0) {
         // Child process
         // printf("Entered here\n");
+        signal(SIGINT, SIG_DFL);
+        signal(SIGTSTP, SIG_DFL);
+        setpgid(0, 0);
         if (execvp(arguments[0], arguments) == -1) {
             printf("rash: command not Found: %s\n", arguments[0]);
         }
-        exit(EXIT_FAILURE);
+        // exit(EXIT_FAILURE);
+        return -1;
     }
     else if (pid < 0) {
         // Error forking
@@ -553,9 +588,13 @@ int foreground_process(char** arguments, int argument_count) {
     }
     else {
         // Parent process
-        do {
-            wpid = waitpid(pid, &status, WUNTRACED);
-        } while (!WIFEXITED(status) && !WIFSIGNALED(status));
+        signal(SIGTTOU, SIG_IGN), signal(SIGTTOU, SIG_IGN);
+        setpgid(pid, 0);
+        tcsetpgrp(STDIN, pid);
+        add_child(pid, arguments[0]);
+        wpid = waitpid(pid, &status, WUNTRACED);
+        tcsetpgrp(STDIN, getpid());
+        signal(SIGTTOU, SIG_DFL), signal(SIGTTOU, SIG_DFL);
     }
 
     return 1;
@@ -569,10 +608,13 @@ int background_process(char** arguments, int argument_count) {
     pid = fork();
     if (pid == 0) {
         setpgid(0, 0);
+        signal(SIGINT, SIG_DFL);
+        signal(SIGTSTP, SIG_DFL);
         if (execvp(arguments[0], arguments) == -1) {
             printf("rash: command not Found: %s\n", arguments[0]);
         }
         exit(EXIT_FAILURE);
+        return -1;
     }
     else if (pid < 0) {
         // Error forking
@@ -581,6 +623,7 @@ int background_process(char** arguments, int argument_count) {
     else {
         // Parent process
         add_child(pid, arguments[0]);
+        printf("%d\n", pid);
     }
 
     return 1;
